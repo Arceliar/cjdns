@@ -78,6 +78,14 @@ struct Node* NodeStore_addNode(struct NodeStore* store,
 struct Node* NodeStore_getBest(struct Address* targetAddress, struct NodeStore* store);
 
 /**
+ * As the above, but selects a node at random from among the 'winning' nodes.
+ * The probability of each node being selected is weighted by the node's value.
+ */
+struct Node* NodeStore_getRandom(struct Address* targetAddress,
+                                  struct NodeStore* store,
+                                  struct Allocator* allocator);
+
+/**
  * Find nodes that have the specified address.  These nodes will have different paths.
  *
  * @param address the Address to find Nodes with

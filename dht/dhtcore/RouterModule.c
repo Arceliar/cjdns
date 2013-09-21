@@ -700,7 +700,8 @@ struct Node* RouterModule_lookup(uint8_t targetAddr[Address_SEARCH_TARGET_SIZE],
     Bits_memcpyConst(addr.ip6.bytes, targetAddr, Address_SEARCH_TARGET_SIZE);
     refreshReach(&addr, module);
 
-    return NodeStore_getBest(&addr, module->nodeStore);
+    //return NodeStore_getBest(&addr, module->nodeStore);
+    return NodeStore_getRandom(&addr, module->nodeStore, module->allocator);
 }
 
 /** see RouterModule.h */

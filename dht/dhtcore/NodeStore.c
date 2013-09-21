@@ -17,6 +17,7 @@
 #include "dht/CJDHTConstants.h"
 #include "dht/dhtcore/DistanceNodeCollector.h"
 #include "dht/dhtcore/LinkStateNodeCollector.h"
+#include "dht/dhtcore/LinkStateRandomNodeCollector.h"
 #include "dht/dhtcore/Node.h"
 #include "dht/dhtcore/NodeHeader.h"
 #include "dht/dhtcore/NodeStore_pvt.h"
@@ -326,6 +327,83 @@ struct Node* NodeStore_getBest(struct Address* targetAddress, struct NodeStore* 
     }
 
     return element.node ? nodeForHeader(element.node, store) : NULL;
+}
+
+struct Node* NodeStore_getRandom(struct Address* targetAddress,
+                                  struct NodeStore* nodeStore,
+                                  struct Allocator* allocator)
+{
+    struct NodeStore_pvt* store = Identity_cast((struct NodeStore_pvt*)nodeStore);
+
+    struct Allocator* nodeCollAlloc = Allocator_child(allocator);
+    struct NodeCollector* collector = NodeCollector_new(targetAddress,
+                                                        5,
+                                                        store->pub.selfAddress,
+                                                        true,
+                                                        store->logger,
+                                                        nodeCollAlloc);
+
+    for (int i = 0; i < store->pub.size; i++) {
+        if (store->headers[i].reach != 0) {
+            LinkStateRandomNodeCollector_addNode(store->headers + i,
+                                                 store->nodes + i,
+                                                 collector,
+                                                 false);
+        }
+    }
+
+    uint32_t minIndex = collector->capacity;
+    uint32_t version = 0;
+    bool destinationMatch = false;
+
+    if (&collector->nodes[collector->capacity - 1]) {
+        destinationMatch = (Bits_memcmp(collector->nodes[collector->capacity - 1].body
+                            ->address.ip6.bytes, targetAddress, 16) == 0);
+        version = collector->nodes[collector->capacity - 1].body->version =
+        Version_CURRENT_PROTOCOL;
+    }
+
+    if (version > Version_CURRENT_PROTOCOL) {
+        version = Version_CURRENT_PROTOCOL;
+    }
+
+    //Identify minimum index to consider, based on destination, version, etc
+    for (int i = (collector->capacity - 1) ; i > 0 ; i--) {
+        if (  &collector->nodes[i] &&
+              (collector->nodes[i].body->version == version) &&
+              (!destinationMatch ||
+              (Bits_memcmp(collector->nodes[i].body
+                            ->address.ip6.bytes, targetAddress, 16) == 0))) {
+
+            minIndex = i;
+
+        }
+    }
+
+    struct NodeHeader* randomNode;
+    uint64_t maxRoll = 0;
+
+    for (uint32_t i = minIndex; i < collector->capacity; i++) {
+        if (&collector->nodes[i]) {
+            maxRoll += collector->nodes[i].value;
+        }
+    }
+
+    uint64_t roll = Random_uint64(store->rand) % (maxRoll | 1);
+
+    for (uint32_t i = minIndex; i < collector->capacity; i++) {
+        if (&collector->nodes[i]) {
+            if (roll < collector->nodes[i].value) {
+                randomNode = collector->nodes[i].node;
+                break;
+            }
+            roll -= collector->nodes[i].value;
+        }
+    }
+
+    Allocator_free(nodeCollAlloc);
+
+    return randomNode ? nodeForHeader(randomNode, store) : NULL;
 }
 
 struct NodeList* NodeStore_getNodesByAddr(struct Address* address,
