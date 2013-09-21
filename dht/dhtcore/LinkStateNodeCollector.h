@@ -35,9 +35,10 @@
  *             look at more bits.
  * @param collector the collector to filter the node through.
  */
-static inline void LinkStateNodeCollector_addNode(struct NodeHeader* header,
-                                                  struct Node* body,
-                                                  struct NodeCollector* collector)
+static inline void LinkStateNodeCollector_addNodeGeneral(struct NodeHeader* header,
+                                                         struct Node* body,
+                                                         struct NodeCollector* collector,
+                                                         bool replaceOnMatch)
 {
     uint32_t nodeDistance = header->addressPrefix ^ collector->targetPrefix;
 
@@ -109,7 +110,8 @@ static inline void LinkStateNodeCollector_addNode(struct NodeHeader* header,
 
             // If this is another route to the same node, replace it rather than inserting
             // separatey.
-            if (i > 0 && !Bits_memcmp(&body->address.ip6, &nodes[i].body->address.ip6, 16)) {
+            if (replaceOnMatch && i > 0 &&
+                !Bits_memcmp(&body->address.ip6, &nodes[i].body->address.ip6, 16)) {
                 match = i + 1;
             }
         }
@@ -129,6 +131,20 @@ static inline void LinkStateNodeCollector_addNode(struct NodeHeader* header,
 
         #undef LinkStateNodeCollector_getValue
     }
+}
+
+static inline void LinkStateNodeCollector_addNode(struct NodeHeader* header,
+                                                  struct Node* body,
+                                                  struct NodeCollector* collector)
+{
+    LinkStateNodeCollector_addNodeGeneral(header, body, collector, true);
+}
+
+static inline void LinkStateNodeCollector_addNodeNoReplace(struct NodeHeader* header,
+                                                           struct Node* body,
+                                                           struct NodeCollector* collector)
+{
+    LinkStateNodeCollector_addNodeGeneral(header, body, collector, false);
 }
 
 #endif

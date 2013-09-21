@@ -17,7 +17,6 @@
 #include "dht/CJDHTConstants.h"
 #include "dht/dhtcore/DistanceNodeCollector.h"
 #include "dht/dhtcore/LinkStateNodeCollector.h"
-#include "dht/dhtcore/LinkStateRandomNodeCollector.h"
 #include "dht/dhtcore/Node.h"
 #include "dht/dhtcore/NodeHeader.h"
 #include "dht/dhtcore/NodeStore_pvt.h"
@@ -345,10 +344,9 @@ struct Node* NodeStore_getRandom(struct Address* targetAddress,
 
     for (int i = 0; i < store->pub.size; i++) {
         if (store->headers[i].reach != 0) {
-            LinkStateRandomNodeCollector_addNode(store->headers + i,
-                                                 store->nodes + i,
-                                                 collector,
-                                                 false);
+            LinkStateNodeCollector_addNodeNoReplace(store->headers + i,
+                                                    store->nodes + i,
+                                                    collector);
         }
     }
 
