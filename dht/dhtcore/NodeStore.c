@@ -354,11 +354,13 @@ struct Node* NodeStore_getRandom(struct Address* targetAddress,
     uint32_t version = 0;
     bool destinationMatch = false;
 
-    if (&collector->nodes[collector->capacity - 1]) {
-        destinationMatch = (Bits_memcmp(collector->nodes[collector->capacity - 1].body
-                            ->address.ip6.bytes, targetAddress, 16) == 0);
-        version = collector->nodes[collector->capacity - 1].body->version =
-        Version_CURRENT_PROTOCOL;
+    for (int i = collector->capacity - 1 ; i > 0 ; i--) {
+        if (&collector->nodes[i]) {
+            destinationMatch = (Bits_memcmp(collector->nodes[i].body
+                                ->address.ip6.bytes, targetAddress, 16) == 0);
+            version = collector->nodes[i].body->version = Version_CURRENT_PROTOCOL;
+            break;
+        }
     }
 
     if (version > Version_CURRENT_PROTOCOL) {
