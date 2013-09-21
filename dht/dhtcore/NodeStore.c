@@ -369,14 +369,13 @@ struct Node* NodeStore_getRandom(struct Address* targetAddress,
 
     //Identify minimum index to consider, based on destination, version, etc
     for (int i = (collector->capacity - 1) ; i > 0 ; i--) {
-        if (  &collector->nodes[i] &&
-              (collector->nodes[i].body->version == version) &&
-              (!destinationMatch ||
-              (Bits_memcmp(collector->nodes[i].body
-                            ->address.ip6.bytes, targetAddress, 16) == 0))) {
-
-            minIndex = i;
-
+        if (collector->nodes[i].body) {
+            if ((collector->nodes[i].body->version == version) &&
+                (!destinationMatch ||
+                (Bits_memcmp(collector->nodes[i].body
+                             ->address.ip6.bytes, targetAddress, 16) == 0))) {
+                minIndex = i;
+            }
         }
     }
 
@@ -384,7 +383,7 @@ struct Node* NodeStore_getRandom(struct Address* targetAddress,
     uint64_t maxRoll = 0;
 
     for (uint32_t i = minIndex; i < collector->capacity; i++) {
-        if (&collector->nodes[i]) {
+        if (collector->nodes[i].value) {
             maxRoll += collector->nodes[i].value;
         }
     }
@@ -392,7 +391,7 @@ struct Node* NodeStore_getRandom(struct Address* targetAddress,
     uint64_t roll = Random_uint64(store->rand) % (maxRoll | 1);
 
     for (uint32_t i = minIndex; i < collector->capacity; i++) {
-        if (&collector->nodes[i]) {
+        if (collector->nodes[i].value) {
             if (roll < collector->nodes[i].value) {
                 randomNode = collector->nodes[i].node;
                 break;
