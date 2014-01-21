@@ -108,16 +108,18 @@ static void logLink(struct NodeStore_pvt* store,
                     struct Node_Link* link,
                     char* message)
 {
-    #ifndef Log_DEBUG
-        return;
-    #endif
+    //#ifndef Log_DEBUG
+    //    return;
+    //#endif
     uint8_t parent[40];
     uint8_t child[40];
     AddrTools_printIp(parent, link->parent->address.ip6.bytes);
     AddrTools_printIp(child, link->child->address.ip6.bytes);
     uint8_t path[20];
+    uint8_t iLEFN[20];
     AddrTools_printPath(path, link->cannonicalLabel);
-    Log_debug(store->logger, "link[%s]->[%s] [%s] %s", parent, child, path, message);
+    AddrTools_printPath(iLEFN, link->inverseLinkEncodingFormNumber);
+    Log_debug(store->logger, "logLink: [%s]->[%s] [%s:%s] %s", parent, child, path, iLEFN, message);
 }
 /*
 static void _assertNoLoop(struct Node_Two* node,  struct NodeStore_pvt* store, char* file, int line)
@@ -654,6 +656,7 @@ static uint64_t findClosest(const uint64_t path,
     for (; !hops || actualHops < *hops; actualHops++) {
 
         // First we splice off the parent's Director leaving the child's Director.
+        Assert_true(LabelSplicer_routesThrough(tmpl.cannonicalLabel, link->cannonicalLabel));
         tmpl.cannonicalLabel = LabelSplicer_unsplice(tmpl.cannonicalLabel, link->cannonicalLabel);
 
         // Then we cannoicalize the child's Director
@@ -664,7 +667,15 @@ static uint64_t findClosest(const uint64_t path,
             // Check that they didn't send us an obviously invalid route.
             if (formNum < link->inverseLinkEncodingFormNumber) {
                 Assert_ifTesting(!"invalid route");
-                Log_info(store->logger, "Invalid route");
+                uint8_t pathStrCan[20];
+                uint8_t pathStrTmpl[20];
+                AddrTools_printPath(pathStrCan, link->cannonicalLabel);
+                AddrTools_printPath(pathStrTmpl, tmpl.cannonicalLabel);
+                Log_info(store->logger,
+                 "Invalid route: formNum [%d] < iLEFN [%d], link->can [%s], tmpl.can [%s]",
+                                         formNum, link->inverseLinkEncodingFormNumber,
+                                         pathStrCan, pathStrTmpl);
+                logLink(store, link, "Invalid Route");
                 return findClosest_INVALID;
             }
 
@@ -678,7 +689,15 @@ static uint64_t findClosest(const uint64_t path,
                 && cannonical != tmpl.cannonicalLabel)
             {
                 Assert_ifTesting(!"wasting space");
-                Log_info(store->logger, "Wasted space");
+                uint8_t pathStrCan[20];
+                uint8_t pathStrTmpl[20];
+                AddrTools_printPath(pathStrCan, cannonical);
+                AddrTools_printPath(pathStrTmpl, tmpl.cannonicalLabel);
+                Log_info(store->logger,
+                         "Wasted space: formNum [%d] > iLEFN [%d], can [%s] != tmpl.can [%s]",
+                          formNum, link->inverseLinkEncodingFormNumber,
+                          pathStrCan, pathStrTmpl);
+                logLink(store, link, "Wasted Space");
                 //return findClosest_INVALID;
             }
             tmpl.cannonicalLabel = cannonical;
@@ -746,6 +765,7 @@ static uint64_t findClosest(const uint64_t path,
     Assert_true(tmpl.cannonicalLabel);/// TODO remove this
     *output = link;
     if (hops) { *hops = actualHops; }
+    logLink(store, link, "Successful findClosest");
     return tmpl.cannonicalLabel;
 }
 
