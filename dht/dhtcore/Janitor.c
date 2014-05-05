@@ -23,6 +23,7 @@
 #include "dht/dhtcore/ReplySerializer.h"
 #include "benc/Object.h"
 #include "memory/Allocator.h"
+#include "switch/LabelSplicer.h"
 #include "util/AddrTools.h"
 #include "util/AverageRoller.h"
 #include "util/Bits.h"
@@ -56,7 +57,7 @@ struct Janitor
     // Used for direct peers and search results that are closer than the responder.
     struct RumorMill* rumorMill;
 
-    // High priority RumorMill.
+    // Medium priority RumorMill.
     // Used when the response could help split non-one-hop links.
     struct RumorMill* splitMill;
 
@@ -310,24 +311,30 @@ static void peersResponseCallback(struct RouterModule_Promise* promise,
     struct Node_Two* parent = NodeStore_nodeForAddr(janitor->nodeStore, from->ip6.bytes);
     if (!parent) { return; }
 
-    // Figure out if this node has any split-able links.
-    bool hasSplitableLinks = false;
-    struct Node_Link* link = NodeStore_nextLink(parent, NULL);
-    while (link) {
-        if (!Node_isOneHopLink(link)) {
-            hasSplitableLinks = true;
-            break;
-        }
-        link = NodeStore_nextLink(parent, link);
-    }
-
     int loopCount = 0;
     for (int i = 0; addresses && i < addresses->length; i++) {
         struct Node_Link* nl = NodeStore_linkForPath(janitor->nodeStore, addresses->elems[i].path);
         if (!nl) {
+
+            // Figure out if this link would split a known link.
+            bool canSplitLink = false;
+            struct Node_Link* link = NodeStore_nextLink(parent, NULL);
+            while (link) {
+                if (!Node_isOneHopLink(link)) {
+                    uint64_t linkPath = NodeStore_getRouteLabel(janitor->nodeStore,
+                                                                from->path,
+                                                                link->cannonicalLabel);
+                    if (LabelSplicer_routesThrough(linkPath, addresses->elems[i].path)) {
+                        canSplitLink = true;
+                        break;
+                    }
+                }
+                link = NodeStore_nextLink(parent, link);
+            }
+
             addresses->elems[i].path = NodeStore_optimizePath(janitor->nodeStore,
                                                               addresses->elems[i].path);
-            if (hasSplitableLinks) {
+            if (canSplitLink) {
                 RumorMill_addNode(janitor->splitMill, &addresses->elems[i]);
             } else {
                 RumorMill_addNode(janitor->idleMill, &addresses->elems[i]);
@@ -351,7 +358,7 @@ static void peersResponseCallback(struct RouterModule_Promise* promise,
                 Address_print(newAddr, from);
                 Log_info(janitor->logger, "Apparently [%s] has renumbered it's switch", newAddr);
             #endif
-            link = NodeStore_nextLink(parent, NULL);
+            struct Node_Link* link = NodeStore_nextLink(parent, NULL);
             while (link) {
                 struct Node_Link* nextLink = NodeStore_nextLink(parent, link);
                 NodeStore_unlinkNodes(janitor->nodeStore, link);
@@ -437,28 +444,8 @@ static void maintanenceCycle(void* vcontext)
 
     struct Address addr = { .protocolVersion = 0 };
 
-    if (RumorMill_getNode(janitor->splitMill, &addr)) {
-        // ping a link-splitting node from the high-priority ping queue
-        addr.path = NodeStore_optimizePath(janitor->nodeStore, addr.path);
-        if (NodeStore_optimizePath_INVALID != addr.path) {
-            struct RouterModule_Promise* rp =
-                RouterModule_getPeers(&addr,
-                                      Random_uint32(janitor->rand),
-                                      0,
-                                      janitor->routerModule,
-                                      janitor->allocator);
-            rp->callback = peersResponseCallback;
-            rp->userData = janitor;
-
-            #ifdef Log_DEBUG
-                uint8_t addrStr[60];
-                Address_print(addrStr, &addr);
-                Log_debug(janitor->logger, "Pinging possible node [%s] from "
-                                           "priority RumorMill", addrStr);
-            #endif
-        }
-    } else if (RumorMill_getNode(janitor->rumorMill, &addr)) {
-        // ping a node from the ping normal-priority queue
+    if (RumorMill_getNode(janitor->rumorMill, &addr)) {
+        // ping a node from the externally accessible (high priority) ping queue
         addr.path = NodeStore_optimizePath(janitor->nodeStore, addr.path);
         if (NodeStore_optimizePath_INVALID != addr.path) {
             struct RouterModule_Promise* rp =
@@ -475,6 +462,26 @@ static void maintanenceCycle(void* vcontext)
                 Address_print(addrStr, &addr);
                 Log_debug(janitor->logger, "Pinging possible node [%s] from "
                                            "normal RumorMill", addrStr);
+            #endif
+        }
+    } else if (RumorMill_getNode(janitor->splitMill, &addr)) {
+        // ping a link-splitting node from the medium-priority ping queue
+        addr.path = NodeStore_optimizePath(janitor->nodeStore, addr.path);
+        if (NodeStore_optimizePath_INVALID != addr.path) {
+            struct RouterModule_Promise* rp =
+                RouterModule_getPeers(&addr,
+                                      Random_uint32(janitor->rand),
+                                      0,
+                                      janitor->routerModule,
+                                      janitor->allocator);
+            rp->callback = peersResponseCallback;
+            rp->userData = janitor;
+
+            #ifdef Log_DEBUG
+                uint8_t addrStr[60];
+                Address_print(addrStr, &addr);
+                Log_debug(janitor->logger, "Pinging possible node [%s] from "
+                                           "path spliting RumorMill", addrStr);
             #endif
         }
     } else if (RumorMill_getNode(janitor->idleMill, &addr)) {
