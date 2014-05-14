@@ -43,10 +43,11 @@ static inline bool hasNode(struct RumorMill* mill, struct Address* addr)
 {
     struct RumorMill_pvt* rm = Identity_check((struct RumorMill_pvt*) mill);
     for (int i = 0; i < rm->pub.count; i++) {
-        if (rm->addresses[i].path == addr->path ||
-            !Bits_memcmp(&rm->addresses[i], addr->ip6.bytes, Address_SEARCH_TARGET_SIZE)) {
+        if (rm->addresses[i].path == addr->path &&
+            !Bits_memcmp(&rm->addresses[i].ip6.bytes, addr->ip6.bytes, Address_SEARCH_TARGET_SIZE))
+        {
             return true;
-            }
+        }
     }
     return false;
 }
