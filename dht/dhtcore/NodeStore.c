@@ -543,6 +543,7 @@ static void handleBadNewsTwo(struct Node_Link* link, struct NodeStore_pvt* store
     check(store);
     updateBestParent(best, nextReach, store);
     check(store);
+    RumorMill_addNode(store->renumberMill, &best->child->address);
 }
 
 /**
@@ -1223,7 +1224,7 @@ static bool markBestNodes(struct NodeStore_pvt* store,
     return retVal;
 }
 
-#define Kademlia_bucketSize 8
+#define Kademlia_bucketSize 4
 static void markKeyspaceNodes(struct NodeStore_pvt* store)
 {
     struct Address addr = *store->pub.selfAddress;
@@ -1279,6 +1280,10 @@ static struct Node_Two* getWorstNode(struct NodeStore_pvt* store)
         struct Node_Link* parentLink = Node_getBestParent(nn);
         if (parentLink) {
             parentLink->parent->marked = 1;
+            if (parentLink->parent == store->pub.selfNode) {
+                // Also probably want to protect direct peers...
+                nn->marked = 1;
+            }
         } else if (!worst || whichIsWorse(nn, worst, store) == nn) {
             // this time around we're only addressing nodes which are unreachable.
             worst = nn;
@@ -1488,6 +1493,13 @@ struct Node_Link* NodeStore_discoverNode(struct NodeStore* nodeStore,
 
     handleNews(link->child, reach, store);
     freePendingLinks(store);
+
+    for (;;) {
+        struct Node_Two* worst = getWorstNode(store);
+        if (!worst || worst->marked) { break; }
+        destroyNode(worst, store);
+        freePendingLinks(store);
+    }
 
     while (store->pub.nodeCount >= store->pub.nodeCapacity
         || store->pub.linkCount >= store->pub.linkCapacity)
@@ -2016,7 +2028,7 @@ void NodeStore_pathTimeout(struct NodeStore* nodeStore, uint64_t path)
             // TODO(arceliar): Something sane. We don't know which link on the path is bad.
             // For now, just penalize them all.
             // The good ones will be rewarded again when they relay another ping.
-            update(link, -link->linkState/2, store);
+            update(link, reachAfterTimeout(link->linkState) - link->linkState, store);
         }
 
         pathFrag = nextPath;

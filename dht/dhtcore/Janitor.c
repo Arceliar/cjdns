@@ -474,8 +474,32 @@ static void maintanenceCycle(void* vcontext)
             #endif
         }
 
-    } else if (Random_uint32(janitor->rand) % 4) {
-        // 75% of the time, ping a random link from a random node.
+    } else if (Random_uint32(janitor->rand) % 2) {
+        // 50% of the time, ping a random node.
+        uint32_t index = Random_uint32(janitor->rand) % (janitor->nodeStore->nodeCount);
+        struct Node_Two* node = NodeStore_dumpTable(janitor->nodeStore, index);
+        if (node && node != janitor->nodeStore->selfNode) {
+            struct Address addr = node->address;
+            addr.path = NodeStore_optimizePath(janitor->nodeStore, addr.path);
+            if (NodeStore_optimizePath_INVALID != addr.path) {
+                struct RouterModule_Promise* rp = RouterModule_getPeers(&addr,
+                                                    Random_uint32(janitor->rand),
+                                                    0,
+                                                    janitor->routerModule,
+                                                    janitor->allocator);
+                rp->callback = peersResponseCallback;
+                rp->userData = janitor;
+                #ifdef Log_DEBUG
+                    uint8_t addrStr[60];
+                    Address_print(addrStr, &addr);
+                    Log_debug(janitor->logger, "Pinging random node [%s] for maintenance.",
+                                                                                  addrStr);
+                #endif
+            }
+        }
+
+    } else if (Random_uint32(janitor->rand) % 2) {
+        // 25% of the time (50% of remaining cases), ping a random link from a random node.
         // There's not an obvious way to get a random link directly, so first get a random node.
         uint32_t index = Random_uint32(janitor->rand) % (janitor->nodeStore->nodeCount);
         struct Node_Two* node = NodeStore_dumpTable(janitor->nodeStore, index);
@@ -522,8 +546,8 @@ static void maintanenceCycle(void* vcontext)
                 #ifdef Log_DEBUG
                     uint8_t addrStr[60];
                     Address_print(addrStr, &addr);
-                    Log_debug(janitor->logger, "Pinging random node link [%s] for maintenance.",
-                                                                                       addrStr);
+                    Log_debug(janitor->logger, "Pinging random link [%s] for maintenance.",
+                                                                                  addrStr);
                 #endif
             }
         }
