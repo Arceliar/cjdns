@@ -1247,7 +1247,7 @@ static bool markBestNodes(struct NodeStore_pvt* store,
     return retVal;
 }
 
-#define Kademlia_bucketSize 8
+#define Kademlia_bucketSize 4
 static void markKeyspaceNodes(struct NodeStore_pvt* store)
 {
     struct Address addr = *store->pub.selfAddress;
@@ -1521,6 +1521,22 @@ struct Node_Link* NodeStore_discoverNode(struct NodeStore* nodeStore,
 
     handleNews(link->child, reach, store);
     freePendingLinks(store);
+
+    for (;;) {
+        struct Node_Two* worst = getWorstNode(store);
+        if (worst->marked) { break; }
+        #ifdef Log_DEBUG
+            uint8_t worstAddr[60];
+            Address_print(worstAddr, &worst->address);
+            Log_debug(store->logger, "removing worst extraneous node: [%s] nodes [%d] links [%d]",
+                      worstAddr, store->pub.nodeCount, store->pub.linkCount);
+        #endif
+
+        Assert_true(!isPeer(worst, store));
+
+        destroyNode(worst, store);
+        freePendingLinks(store);
+    }
 
     while (store->pub.nodeCount - store->pub.peerCount > store->pub.nodeCapacity
         || store->pub.linkCount > store->pub.linkCapacity)
