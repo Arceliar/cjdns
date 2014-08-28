@@ -457,8 +457,18 @@ static void maintanenceCycle(void* vcontext)
                                        "link-finding RumorMill", addrStr);
         #endif
 
-    } else if (Random_uint32(janitor->rand) % 4) {
-        // 75% of the time, ping a random link from a random node.
+    } else if (RumorMill_getNode(janitor->nodeMill, &addr)) {
+        // ping a node from the low-priority ping queue
+        getPeersMill(janitor, &addr);
+        #ifdef Log_DEBUG
+            uint8_t addrStr[60];
+            Address_print(addrStr, &addr);
+            Log_debug(janitor->logger, "Pinging possible node [%s] from "
+                                       "node-finding RumorMill", addrStr);
+        #endif
+
+    } else {
+        // Ping a random link from a random node.
         // There's not an obvious way to get a random link directly, so first get a random node.
         struct Node_Two* node = getRandomNode(janitor->rand, janitor->nodeStore);
         // Count the number of links leading from this node.
@@ -497,16 +507,6 @@ static void maintanenceCycle(void* vcontext)
                                                                                    addrStr);
             #endif
         }
-
-    } else if (RumorMill_getNode(janitor->nodeMill, &addr)) {
-        // ping a node from the low-priority ping queue
-        getPeersMill(janitor, &addr);
-        #ifdef Log_DEBUG
-            uint8_t addrStr[60];
-            Address_print(addrStr, &addr);
-            Log_debug(janitor->logger, "Pinging possible node [%s] from "
-                                       "node-finding RumorMill", addrStr);
-        #endif
     }
 
     // random search
