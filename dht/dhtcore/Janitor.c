@@ -489,7 +489,7 @@ static void maintanenceCycle(void* vcontext)
             {
                 addr.path = path;
             }
-            getPeersMill(janitor, &addr);
+            RouterModule_pingNode(&addr, 0, janitor->routerModule, janitor->allocator);
             #ifdef Log_DEBUG
                 uint8_t addrStr[60];
                 Address_print(addrStr, &addr);
