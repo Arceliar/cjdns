@@ -296,8 +296,8 @@ static void peersResponseCallback(struct RouterModule_Promise* promise,
                                addresses->elems[i].ip6.bytes,
                                Address_SEARCH_TARGET_SIZE))
         {
-            addresses->elems[i].path = NodeStore_optimizePath(janitor->nodeStore,
-                                                              addresses->elems[i].path);
+            //addresses->elems[i].path = NodeStore_optimizePath(janitor->nodeStore,
+            //                                                  addresses->elems[i].path);
 
             struct Node_Two* node = NodeStore_nodeForAddr(janitor->nodeStore,
                                                           addresses->elems[i].ip6.bytes);
@@ -404,7 +404,7 @@ static struct Node_Two* getRandomNode(struct Random* rand, struct NodeStore* sto
 
 static void getPeersMill(struct Janitor* janitor, struct Address* addr)
 {
-    addr->path = NodeStore_optimizePath(janitor->nodeStore, addr->path);
+    //addr->path = NodeStore_optimizePath(janitor->nodeStore, addr->path);
     if (NodeStore_optimizePath_INVALID != addr->path) {
         struct RouterModule_Promise* rp =
             RouterModule_getPeers(addr,
