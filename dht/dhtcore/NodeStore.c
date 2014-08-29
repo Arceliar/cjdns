@@ -1247,7 +1247,6 @@ static bool markBestNodes(struct NodeStore_pvt* store,
     return retVal;
 }
 
-#define Kademlia_bucketSize 4
 static void markKeyspaceNodes(struct NodeStore_pvt* store)
 {
     struct Address addr = *store->pub.selfAddress;
@@ -1277,7 +1276,7 @@ static void markKeyspaceNodes(struct NodeStore_pvt* store)
         // number of empty buckets and then exit. (done)
         // Better implementation would be to iterate over the tree *once* to fill NodeLists
         // for every bucket. Then iterate over all lists marking the nodes in the lists.
-        if (!markBestNodes(store, &addr, Kademlia_bucketSize)) { emptyBuckets++; }
+        if (!markBestNodes(store, &addr, NodeStore_bucketSize)) { emptyBuckets++; }
         if ( emptyBuckets > 16 ) { return; }
 
         // Flip the bit back and continue.
@@ -1524,15 +1523,13 @@ struct Node_Link* NodeStore_discoverNode(struct NodeStore* nodeStore,
 
     for (;;) {
         struct Node_Two* worst = getWorstNode(store);
-        if (worst->marked) { break; }
+        if (worst->marked || isPeer(worst, store)) { break; }
         #ifdef Log_DEBUG
             uint8_t worstAddr[60];
             Address_print(worstAddr, &worst->address);
             Log_debug(store->logger, "removing worst extraneous node: [%s] nodes [%d] links [%d]",
                       worstAddr, store->pub.nodeCount, store->pub.linkCount);
         #endif
-
-        Assert_true(!isPeer(worst, store));
 
         destroyNode(worst, store);
         freePendingLinks(store);
@@ -2121,3 +2118,45 @@ void NodeStore_pathTimeout(struct NodeStore* nodeStore, uint64_t path)
         RumorMill_addNode(store->renumberMill, &link->parent->address);
     }
 }
+
+/* Find the address that describes the source's Nth furthest-away bucket. */
+struct Address NodeStore_addrForBucket(struct Address* source, uint8_t bucket)
+{
+    if (63 < bucket && bucket < 72) {
+        // We want to leave the 0xfc alone
+        // We also want a RouterModule_lookup() to succeed.
+        // Lets just return the furthest possible bucket.
+        return NodeStore_addrForBucket(source, 0);
+
+    } else {
+        uint8_t bit;
+        uint8_t byte;
+        struct Address addr = *source;
+
+        // Figure out which bit of our address to flip for this step in keyspace.
+        // This looks ugly because of the rot64 done in distance calculations.
+        if (bucket < 64) { byte = 8 + (bucket/8); }
+        else             { byte = (bucket/8) - 8; }
+        bit = (bucket % 8);
+
+        addr.ip6.bytes[byte] = addr.ip6.bytes[byte] ^ (0x80 >> bit);
+
+        // Needed in case source == selfNode->address, and we want to put this in a RumorMill.
+        addr.key[0] = addr.key[0] ^ 0x80;
+
+        // Hack, store bucket # in path, in case we need to check this.
+        addr.path = bucket;
+
+        return addr;
+    }
+}
+
+uint8_t NodeStore_bucketForAddr(struct Address* source, struct Address* dest)
+{
+    uint64_t partDist;
+    partDist = source->ip6.longs.one_be ^ dest->ip6.longs.one_be;
+    if (partDist) { return 63 - Bits_log2x64(partDist); }
+    partDist = source->ip6.longs.two_be ^ dest->ip6.longs.two_be;
+    return 127 - Bits_log2x64(partDist);
+}
+

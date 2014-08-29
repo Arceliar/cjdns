@@ -201,31 +201,9 @@ static void keyspaceMaintainenceGlobal(struct Janitor* janitor)
         return;
     }
 
-    int byte = 0;
-    int bit = 0;
     bool foundHole = false;
     for (uint8_t i = 0; i < 128 ; i++) {
-        // Bitwise walk across keyspace
-        if (63 < i && i < 72) {
-            // We want to leave the 0xfc alone
-            continue;
-        }
-
-        // Figure out which bit of our address to flip for this step in keyspace.
-        // This looks ugly because of the rot64 done in distance calculations.
-        if (i < 64) { byte = 8 + (i/8); }
-        else        { byte = (i/8) - 8; }
-        bit = (i % 8);
-
-        // Create an address with that bit flipped.
-        struct Address addr = *janitor->nodeStore->selfAddress;
-        addr.ip6.bytes[byte] = addr.ip6.bytes[byte] ^ (0x80 >> bit);
-
-        // Keep the rumorMill code happy. We only use this for searches, so it's OK.
-        addr.path = i;
-        addr.key[0] = addr.key[0] ^ 0x80;
-
-        // See if we know a valid next hop.
+        struct Address addr = NodeStore_addrForBucket(janitor->nodeStore->selfAddress, i);
         struct Node_Two* node = RouterModule_lookup(addr.ip6.bytes, janitor->routerModule);
 
         if (!node) {
@@ -265,15 +243,7 @@ static void keyspaceMaintainenceLocal(struct Janitor* janitor)
         return;
     }
 
-    struct Node_Two* node = RouterModule_lookup(addr.ip6.bytes, janitor->routerModule);
-    if (node) {
-        // We know a valid next hop, so let's ping it to check its health.
-        // TODO(arceliar): try to find better path? (how?)
-        RouterModule_pingNode(&node->address, 0, janitor->routerModule, janitor->allocator);
-    } else {
-        // We don't know a valid next hop, so let's try to find one.
-        searchNoDupe(addr.ip6.bytes, janitor);
-    }
+    searchNoDupe(addr.ip6.bytes, janitor);
 }
 
 static void peersResponseCallback(struct RouterModule_Promise* promise,
@@ -371,17 +341,30 @@ static void checkPeers(struct Janitor* janitor, struct Node_Two* n)
 // Iterate over all nodes in the table. Try to split any split-able links.
 static void splitLinks(struct Janitor* janitor)
 {
-    return; // TODO(cjd): Disabled until we figure out if it's still needed.
+    #ifdef Log_DEBUG
+        Log_debug(janitor->logger, "WhiteWhale 0: Calling splitLinks()");
+    #endif
+    //return; // TODO(cjd): Disabled until we figure out if it's still needed.
 
     struct Node_Two* node = NodeStore_getNextNode(janitor->nodeStore, NULL);
     while (node) {
         struct Node_Link* bestParent = Node_getBestParent(node);
         if (bestParent) {
+            #ifdef Log_DEBUG
+                uint8_t addrStr[60];
+                Address_print(addrStr, &node->address);
+                Log_debug(janitor->logger, "WhiteWhale 1 [%s]", addrStr);
+            #endif
             struct Node_Link* link = NodeStore_nextLink(node, NULL);
             while (link) {
+                #ifdef Log_DEBUG
+                    uint8_t addrStr[60];
+                    Address_print(addrStr, &link->child->address);
+                    Log_debug(janitor->logger, "WhiteWhale 2 [%s]", addrStr);
+                #endif
                 if (!Node_isOneHopLink(link)) {
-                    RumorMill_addNode(janitor->linkMill, &node->address);
-                    break;
+                    RumorMill_addNode(janitor->nodeMill, &node->address);
+                    //break; //XXX(arceliar): Disabled for debug purposes.
                 }
                 link = NodeStore_nextLink(node, link);
             }

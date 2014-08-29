@@ -195,4 +195,13 @@ void NodeStore_brokenPath(uint64_t path, struct NodeStore* store);
 
 struct Node_Two* NodeStore_getNextNode(struct NodeStore* nodeStore, struct Node_Two* lastNode);
 
+// Number of nodes to keep in each bucket of the kad-like DHT.
+#define NodeStore_bucketSize 4
+
+/* Find the address that describes the Nth furthest-away DHT bucket for the source address. */
+struct Address NodeStore_addrForBucket(struct Address* source, uint8_t bucket);
+
+/* Find the index of the DHT bucket where the source would store the destination. */
+uint8_t NodeStore_bucketForAddr(struct Address* source, struct Address* dest);
+
 #endif
