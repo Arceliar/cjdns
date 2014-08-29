@@ -341,30 +341,17 @@ static void checkPeers(struct Janitor* janitor, struct Node_Two* n)
 // Iterate over all nodes in the table. Try to split any split-able links.
 static void splitLinks(struct Janitor* janitor)
 {
-    #ifdef Log_DEBUG
-        Log_debug(janitor->logger, "WhiteWhale 0: Calling splitLinks()");
-    #endif
-    //return; // TODO(cjd): Disabled until we figure out if it's still needed.
+    return; // TODO(cjd): Disabled until we figure out if it's still needed.
 
     struct Node_Two* node = NodeStore_getNextNode(janitor->nodeStore, NULL);
     while (node) {
         struct Node_Link* bestParent = Node_getBestParent(node);
         if (bestParent) {
-            #ifdef Log_DEBUG
-                uint8_t addrStr[60];
-                Address_print(addrStr, &node->address);
-                Log_debug(janitor->logger, "WhiteWhale 1 [%s]", addrStr);
-            #endif
             struct Node_Link* link = NodeStore_nextLink(node, NULL);
             while (link) {
-                #ifdef Log_DEBUG
-                    uint8_t addrStr[60];
-                    Address_print(addrStr, &link->child->address);
-                    Log_debug(janitor->logger, "WhiteWhale 2 [%s]", addrStr);
-                #endif
                 if (!Node_isOneHopLink(link)) {
                     RumorMill_addNode(janitor->nodeMill, &node->address);
-                    //break; //XXX(arceliar): Disabled for debug purposes.
+                    break;
                 }
                 link = NodeStore_nextLink(node, link);
             }
