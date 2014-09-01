@@ -1203,9 +1203,9 @@ static struct Node_Two* whichIsWorse(struct Node_Two* one,
     return two;
 }
 
-static bool markBestNodes(struct NodeStore_pvt* store,
-                          struct Address* targetAddress,
-                          const uint32_t count)
+static uint8_t markBestNodes(struct NodeStore_pvt* store,
+                             struct Address* targetAddress,
+                             const uint32_t count)
 {
     struct Allocator* nodeListAlloc = Allocator_child(store->alloc);
     struct NodeList* nodeList = Allocator_malloc(nodeListAlloc, sizeof(struct NodeList));
@@ -1240,14 +1240,13 @@ static bool markBestNodes(struct NodeStore_pvt* store,
         }
     }
 
-    bool retVal = false;
-    if (nodeList->size > 0) { retVal = true; }
-
     for (uint32_t i = 0; i < nodeList->size; i++) {
         // Now mark the nodes in the list to protect them.
         Identity_check(nodeList->nodes[i]);
         nodeList->nodes[i]->marked = 1;
     }
+
+    uint8_t retVal = nodeList->size;
 
     // Cleanup
     Allocator_free(nodeListAlloc);

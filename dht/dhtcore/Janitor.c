@@ -200,19 +200,18 @@ static void dhtResponseCallback(struct RouterModule_Promise* promise,
     struct Node_Two* parent = NodeStore_nodeForAddr(janitor->nodeStore, from->ip6.bytes);
     if (!parent) { return; }
 
-    struct Address* selfAddr = &janitor->nodeStore->selfNode->address;
+    struct Address* selfAddr = janitor->nodeStore->selfAddress;
     for (int i = 0; addresses && i < addresses->length; i++) {
         struct Node_Two* node = NodeStore_nodeForAddr(janitor->nodeStore,
                                                       addresses->elems[i].ip6.bytes);
         if (!node) {
             if (Address_closest(selfAddr, from, &addresses->elems[i]) < 0) {
-                // Address is further from us than the node we asked.
-                // Skip it to avoid infinite loops in uninteresting parts of keyspace.
+                // Address is further from us than the node we asked. Skip it.
                 continue;
-            } else {
-                // Interesting for dht reasons.
-                RumorMill_addNode(janitor->dhtMill, &addresses->elems[i]);
             }
+
+            // Possibly interesting for dht reasons.
+            RumorMill_addNode(janitor->dhtMill, &addresses->elems[i]);
         }
     }
 }
@@ -227,7 +226,7 @@ static void dhtResponseCallback(struct RouterModule_Promise* promise,
 static void keyspaceMaintainence(struct Janitor* janitor)
 {
     struct Address addr;
-    struct Address* selfAddr = &janitor->nodeStore->selfNode->address;
+    struct Address* selfAddr = janitor->nodeStore->selfAddress;
     if (!RumorMill_getNode(janitor->dhtMill, &addr)) {
         // Try to fill the dhtMill for next time.
         if (janitor->keyspaceMaintainenceCounter > 127) {
@@ -246,22 +245,11 @@ static void keyspaceMaintainence(struct Janitor* janitor)
             struct Node_Two* node = RouterModule_lookup(target.ip6.bytes, janitor->routerModule);
             if (!node) { continue; }
 
-            // There's a valid next hop. Add the nodes from the bucket to our to-ping list.
-            // TODO(arceliar): Instead of closest, the best nodes that are closer than us.
-            struct Allocator* nodeListAlloc = Allocator_child(janitor->allocator);
-            struct NodeList* nodeList = NodeStore_getClosestNodes(janitor->nodeStore,
-                                                                  &addr,
-                                                                  NodeStore_bucketSize,
-                                                                  selfAddr->protocolVersion,
-                                                                  nodeListAlloc);
-            for (uint8_t i = 0 ; i < nodeList->size ; i++) {
-                if (Address_closest(&addr, selfAddr, &nodeList->nodes[i]->address) < 0) {
-                    // This address is further from the target than we are. Skip it.
-                    continue;
-                }
-                RumorMill_addNode(janitor->dhtMill, &nodeList->nodes[i]->address);
-            }
-            Allocator_free(nodeListAlloc);
+            // There's a valid next hop.
+            // TODO(arceliar): Ask for the NodeStore_bucketSize best nodes?
+            // By best I mean, of the nodes that are closer, those with highest reach.
+            // (Not the closest.)
+            RumorMill_addNode(janitor->dhtMill, &node->address);
             break;
         }
 
@@ -270,27 +258,37 @@ static void keyspaceMaintainence(struct Janitor* janitor)
         return;
     }
 
-    // Address falls in our N'th bucket.
-    // Ask for nodes from their N'th bucket.
-    // Responses are good for our N+1'th or later bucket.
-    uint8_t bucket = NodeStore_bucketForAddr(selfAddr, &addr);
-    struct Address target = NodeStore_addrForBucket(&addr, bucket);
-    struct RouterModule_Promise* rp = RouterModule_findNode(&addr,
-                                                            target.ip6.bytes,
-                                                            0,
-                                                            janitor->routerModule,
-                                                            janitor->allocator);
-    rp->callback = dhtResponseCallback;
-    rp->userData = janitor;
-    #ifdef Log_DEBUG
-        uint8_t addrStr[60];
-        Address_print(addrStr, &addr);
-        Log_debug(janitor->logger, "Pinging possible node [%s] from "
-                                   "dht-checking RumorMill", addrStr);
-    #endif
+    if (NodeStore_nodeForAddr(janitor->nodeStore, addr.ip6.bytes)) {
+        // Address falls in our N'th bucket.
+        // Ask for nodes from their N'th bucket.
+        // Responses are good for our N+1'th or later bucket.
+        uint8_t bucket = NodeStore_bucketForAddr(selfAddr, &addr);
+        struct Address target = NodeStore_addrForBucket(&addr, bucket);
+        struct RouterModule_Promise* rp = RouterModule_findNode(&addr,
+                                                                target.ip6.bytes,
+                                                                0,
+                                                                janitor->routerModule,
+                                                                janitor->allocator);
+        rp->callback = dhtResponseCallback;
+        rp->userData = janitor;
+        #ifdef Log_DEBUG
+            uint8_t addrStr[60];
+            Address_print(addrStr, &addr);
+            Log_debug(janitor->logger, "Sending findNode to [%s] from "
+                                       "dht-checking RumorMill", addrStr);
+        #endif
+    } else {
+        // Node not already in our routing table.
+        // Ping them. If they're good, we'll ask them to findNodes our next round.
+        RouterModule_pingNode(&addr, 0, janitor->routerModule, janitor->allocator);
+        #ifdef Log_DEBUG
+            uint8_t addrStr[60];
+            Address_print(addrStr, &addr);
+            Log_debug(janitor->logger, "Pinging possible node [%s] from "
+                                       "dht-checking RumorMill", addrStr);
+        #endif
+    }
     return;
-
-    // I think this is the last remaining search. It's unreachable.
     searchNoDupe(addr.ip6.bytes, janitor);
 }
 
