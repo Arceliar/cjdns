@@ -1530,6 +1530,7 @@ struct Node_Link* NodeStore_discoverNode(struct NodeStore* nodeStore,
     freePendingLinks(store);
 
     for (;;) {
+        //break; // Enable this loop to help debug the DHT.
         struct Node_Two* worst = getWorstNode(store);
         if (worst->marked || isPeer(worst, store)) { break; }
         #ifdef Log_DEBUG
@@ -2135,6 +2136,9 @@ struct Address NodeStore_addrForBucket(struct Address* source, uint8_t bucket)
         // Lets just return the furthest possible bucket.
         return NodeStore_addrForBucket(source, 0);
 
+    } else if (bucket > 127) {
+        // This does not exist.
+        return *source;
     } else {
         uint8_t bit;
         uint8_t byte;
