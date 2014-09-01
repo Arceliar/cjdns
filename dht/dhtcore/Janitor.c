@@ -247,6 +247,7 @@ static void keyspaceMaintainence(struct Janitor* janitor)
             if (!node) { continue; }
 
             // There's a valid next hop. Add the nodes from the bucket to our to-ping list.
+            // TODO(arceliar): Instead of closest, the best nodes that are closer than us.
             struct Allocator* nodeListAlloc = Allocator_child(janitor->allocator);
             struct NodeList* nodeList = NodeStore_getClosestNodes(janitor->nodeStore,
                                                                   &addr,
@@ -269,9 +270,13 @@ static void keyspaceMaintainence(struct Janitor* janitor)
         return;
     }
 
-    // TODO(arceliar): Search for something better than selfAddr?
+    // Address falls in our N'th bucket.
+    // Ask for nodes from their N'th bucket.
+    // Responses are good for our N+1'th or later bucket.
+    uint8_t bucket = NodeStore_bucketForAddr(selfAddr, &addr);
+    struct Address target = NodeStore_addrForBucket(&addr, bucket);
     struct RouterModule_Promise* rp = RouterModule_findNode(&addr,
-                                                            selfAddr->ip6.bytes,
+                                                            target.ip6.bytes,
                                                             0,
                                                             janitor->routerModule,
                                                             janitor->allocator);

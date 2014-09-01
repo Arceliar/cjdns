@@ -1257,11 +1257,7 @@ static bool markBestNodes(struct NodeStore_pvt* store,
 
 static void markKeyspaceNodes(struct NodeStore_pvt* store)
 {
-    struct Address addr = *store->pub.selfAddress;
-
-    uint8_t emptyBuckets = 0;
-    uint8_t byte = 0;
-    uint8_t bit = 0;
+    //uint8_t emptyBuckets = 0;
     for (uint8_t i = 0; i < 128 ; i++) {
         // Bitwise walk across keyspace
         if (63 < i && i < 72) {
@@ -1269,26 +1265,11 @@ static void markKeyspaceNodes(struct NodeStore_pvt* store)
             continue;
         }
 
-        // Figure out which bit of the address to flip for this step in keyspace.
-        // This looks ugly because of the rot64 done in distance calculations.
-        if (i < 64) { byte = 8 + (i/8); }
-        else        { byte = (i/8) - 8; }
-        bit = (i % 8);
+        struct Address addr = NodeStore_addrForBucket(store->pub.selfAddress, i);
+        markBestNodes(store, &addr, NodeStore_bucketSize);
 
-        // Flip that bit.
-        addr.ip6.bytes[byte] = addr.ip6.bytes[byte] ^ (0x80 >> bit);
-
-        // Mark the best nodes for this hop.
-        // TODO(arceliar): Current implementation (calling markBestNodes on everything)
-        // scales poorly. Temporary workaround is to catch when we've found some
-        // number of empty buckets and then exit. (done)
-        // Better implementation would be to iterate over the tree *once* to fill NodeLists
-        // for every bucket. Then iterate over all lists marking the nodes in the lists.
-        if (!markBestNodes(store, &addr, NodeStore_bucketSize)) { emptyBuckets++; }
-        if ( emptyBuckets > 16 ) { return; }
-
-        // Flip the bit back and continue.
-        addr.ip6.bytes[byte] = addr.ip6.bytes[byte] ^ (0x80 >> bit);
+        //if (!markBestNodes(store, &addr, NodeStore_bucketSize)) { emptyBuckets++; }
+        //if ( emptyBuckets > 16 ) { return; }
     }
 }
 
