@@ -23,6 +23,7 @@
 #include "dht/dhtcore/ReplySerializer.h"
 #include "benc/Object.h"
 #include "memory/Allocator.h"
+#include "switch/LabelSplicer.h"
 #include "util/AddrTools.h"
 #include "util/AverageRoller.h"
 #include "util/Bits.h"
@@ -198,10 +199,6 @@ static void dhtResponseCallback(struct RouterModule_Promise* promise,
 
     struct Node_Two* parent = NodeStore_nodeForAddr(janitor->nodeStore, from->ip6.bytes);
     if (!parent) { return; }
-    struct Node_Link* bp = Node_getBestParent(parent);
-    if (bp && !Node_isOneHopLink(bp)) {
-        RumorMill_addNode(janitor->linkMill, &bp->parent->address);
-    }
 
     struct Address* selfAddr = &janitor->nodeStore->selfNode->address;
     for (int i = 0; addresses && i < addresses->length; i++) {
@@ -211,7 +208,6 @@ static void dhtResponseCallback(struct RouterModule_Promise* promise,
             if (Address_closest(selfAddr, from, &addresses->elems[i]) < 0) {
                 // Address is further from us than the node we asked.
                 // Skip it to avoid infinite loops in uninteresting parts of keyspace.
-                // TODO(arceliar): Still add it to nodeMill, maybe?
                 continue;
             } else {
                 // Interesting for dht reasons.
@@ -315,7 +311,22 @@ static void peersResponseCallback(struct RouterModule_Promise* promise,
         {
             struct Node_Two* node = NodeStore_nodeForAddr(janitor->nodeStore,
                                                           addresses->elems[i].ip6.bytes);
-            if (node) {
+            bool splitsLink = false;
+            struct Node_Link* link = NodeStore_nextLink(parent, NULL);
+            while (link) {
+                uint64_t pathFull = NodeStore_getRouteLabel(janitor->nodeStore,
+                                                            parent->address.path,
+                                                            link->cannonicalLabel);
+                uint64_t pathFrag = LabelSplicer_unsplice(pathFull, parent->address.path);
+                uint64_t elemPathFrag = LabelSplicer_unsplice(addresses->elems[i].path,
+                                                              from->path);
+                if (LabelSplicer_routesThrough(pathFrag, elemPathFrag)) {
+                    splitsLink = true;
+                    break;
+                }
+                link = NodeStore_nextLink(parent, link);
+            }
+            if (node || splitsLink) {
                 RumorMill_addNode(janitor->linkMill, &addresses->elems[i]);
             } else {
                 RumorMill_addNode(janitor->nodeMill, &addresses->elems[i]);
