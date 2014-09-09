@@ -759,6 +759,8 @@ static struct Node_Link* linkNodes(struct Node_Two* parent,
     }
     #endif
 
+    Assert_true(cannonicalLabel <= discoveredPath);
+
     struct Node_Link* link = getLink(store);
 
     // set it up
@@ -989,7 +991,10 @@ static struct Node_Link* discoverLinkC(struct NodeStore_pvt* store,
         // lets not bother storing this link, a link with the same parent and child is
         // invalid according to verify() and it's just going to take up space in the store
         // we'll return closest which is a perfectly valid path to the same node.
-        return closest;
+
+        // We could reasonably return the closest since it is the same node but it causes
+        // problems with an assertion in discoverLink.
+        return NULL;
     }
 
     if (EncodingScheme_isSelfRoute(parent->encodingScheme, pathParentChild)) {
@@ -1096,9 +1101,15 @@ static void fixLink(struct Node_Link* parentLink,
             Assert_true(childToGrandchild != 1);
             Assert_true(splitLink->cannonicalLabel != parentLink->cannonicalLabel);
 
+            // We forgot what was the discovered path for the link when we split (destroyed)
+            // it so we'll just assume the worst among these two possibilities.
+            // There is an assertion that discoveredPath is never < cannonicalLabel so we must.
+            uint64_t discoveredPath = parentLink->discoveredPath;
+            if (childToGrandchild > discoveredPath) { discoveredPath = childToGrandchild; }
+
             struct Node_Link* childLink =
                 discoverLinkC(store, parentLink, childToGrandchild, grandChild,
-                              parentLink->discoveredPath, splitLink->inverseLinkEncodingFormNumber);
+                              discoveredPath, splitLink->inverseLinkEncodingFormNumber);
 
             if (childLink) {
                 // Order the list so that the next set of links will be split from
@@ -1820,7 +1831,10 @@ struct Node_Two* NodeStore_getBest(struct Address* targetAddress, struct NodeSto
 
     for (int i = 0; i < 10000; i++) {
         int ret = getBestCycle(store->pub.selfNode, targetAddress, &n, i, 0, store);
-        if (n || !ret) { return n; }
+        if (n || !ret) {
+            if (n) { Assert_true(Node_getBestParent(n)); }
+            return n;
+        }
     }
 
     return NULL;
@@ -1970,11 +1984,12 @@ void NodeStore_brokenPath(uint64_t path, struct NodeStore* nodeStore)
         handleBadNews(nl->child, 0, store);
     }
 
+    /* This workaround can lock the rumorMill in a bad state.
     if (nl->parent != store->pub.selfNode) {
         // XXX(arceliar): Temporary workaround to the above TODO(cjd) statement.
         // This should often recursively find the problematic node.
         RumorMill_addNode(store->renumberMill, &nl->parent->address);
-    }
+    }*/
 
     verify(store);
 }
@@ -2099,12 +2114,13 @@ void NodeStore_pathTimeout(struct NodeStore* nodeStore, uint64_t path)
         RumorMill_addNode(store->renumberMill, &node->address);
     }
 
+    /* This workaround can lock the rumorMill in a bad state.
     if (link->parent != store->pub.selfNode) {
         // All we know for sure is that link->child didn't respond.
         // That could be because an earlier link is down.
         // Same idea as the workaround in NodeStore_brokenPath();
         RumorMill_addNode(store->renumberMill, &link->parent->address);
-    }
+    }*/
 }
 
 /* Find the address that describes the source's Nth furthest-away bucket. */

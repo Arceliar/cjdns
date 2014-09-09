@@ -234,7 +234,7 @@ Or if you use neither and would like to install the binaries from their websites
 
 Sadly, OpenBSD is a bit experimental right now.
 
-    pkg_add git node gcc
+    pkg_add git node gcc gmake bash
 
 Select version gcc-4.8.1p2 or more recent.
 
@@ -461,9 +461,10 @@ stay on [IRC](#community) so that people can reach you.
 ## Admin interface
 
 When cjdnroute is up and running, the admin interface will be available at
-`localhost:11234` (this can be changed in the cjdroute.conf
+`udp://localhost:11234` (this can be changed in the cjdroute.conf
 configuration file). See [admin/README.md](admin/README.md) for more
-information about the admin interface.
+information about the admin interface. There are several tools in `contrib/`
+that can interact with it.
 
 You can access the admin API with:
 
@@ -489,4 +490,3 @@ You can access the admin API with:
 [Tor]: https://www.torproject.org
 [I2P]: http://www.i2p2.de
 [Freenet]: https://freenetproject.org
-

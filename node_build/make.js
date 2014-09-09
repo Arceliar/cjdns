@@ -237,7 +237,7 @@ Builder.configure({
             builder.config.libs.push('-lrt'); // clock_gettime()
         } else if (builder.config.systemName === 'darwin') {
             builder.config.libs.push('-framework', 'CoreServices');
-        } else if (builder.config.systemName === 'freebsd') {
+        } else if (['freebsd', 'openbsd'].indexOf(builder.config.systemName) >= 0) {
             builder.config.cflags.push('-Wno-overlength-strings');
             builder.config.libs.push('-lkvm');
         } else if (builder.config.systemName === 'sunos') {
@@ -306,7 +306,7 @@ Builder.configure({
                     args.push('CFLAGS=-fPIC');
                 }
 
-                var makeCommand = builder.config.systemName == 'freebsd' ? 'gmake' : 'make';
+                var makeCommand = ['freebsd', 'openbsd'].indexOf(builder.config.systemName) >= 0 ? 'gmake' : 'make';
                 var make = Spawn(makeCommand, args, {stdio: 'inherit'});
 
                 make.on('error', function (err) {
@@ -369,5 +369,6 @@ Builder.configure({
 }).failure(function (builder, waitFor) {
 
     console.log('\033[1;31mFailed to build cjdns.\033[0m');
+    process.exit(1);
 
 });
