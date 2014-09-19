@@ -375,7 +375,7 @@ static uint32_t guessReachOfChild(struct Node_Link* link)
     uint32_t r;
     if (LabelSplicer_isOneHop(link->cannonicalLabel)) {
         // Single-hop link, so guess that it's 3/4 the parent's reach
-        r = (Node_getReach(link->parent) * 3) / 4;
+        r = ((uint64_t)Node_getReach(link->parent) * 3) / 4;
     }
     else {
         // Multi-hop link, so let's assume 1/2 the parent's reach.
@@ -388,13 +388,32 @@ static uint32_t guessReachOfChild(struct Node_Link* link)
     }
 
     // Educated guess, parent's latency + link's latency (neither of which is known perfectly).
-    uint32_t guess = addReach(Node_getReach(link->parent), link->linkState);
-    if (guess < Node_getReach(link->parent) && guess > r) {
+    uint32_t guess;
+    struct Node_Link* parentBPLink = Node_getBestParent(link->parent);
+    if (parentBPLink && parentBPLink->parent == link->parent) {
+        // This implies link->parent is the selfNode.
+        guess = link->linkState;
+    } else {
+        guess = addReach(Node_getReach(link->parent), link->linkState);
+    }
+
+    if (guess >= Node_getReach(link->parent)) {
+        // DEBUG, due to integer math/rounding?
+        guess = Node_getReach(link->parent) - 1;
+    }
+
+    if (guess == 0) {
+        // DEBUG
+        guess = 1024;
+    }
+
+    if (guess < Node_getReach(link->parent) && guess != 0) {
         // Our guess is sensible, so use it.
         r = guess;
     }
 
-    Assert_true(r < Node_getReach(link->parent) && r != 0);
+    Assert_true(r < Node_getReach(link->parent));
+    Assert_true(r != 0);
     return r;
 }
 
@@ -2028,6 +2047,56 @@ void NodeStore_brokenLink(struct NodeStore* nodeStore, uint64_t path, uint64_t p
     }
 }
 
+// TODO(arceliar): Dijkstra's algorithm.
+// This is just a quick (two write) and messy monstrosity that accomplishes the same end goal.
+// This just exists so we can debug the rest of the nodestore to make it Dijkstra-ready.
+void optimizeStore(struct NodeStore_pvt* store)
+{
+    //return;
+    verify(store);
+    for (uint8_t state = 0 ; state < 2 ; state++) {
+        struct Node_Two* node = NULL;
+        RB_FOREACH(node, NodeRBTree, &store->nodeTree) {
+            struct Node_Link* link = NodeStore_nextLink(node, NULL);
+            while (link) {
+                if (link == store->selfLink) {
+                    // Don't touch the selfLink.
+                    link = NodeStore_nextLink(node, link);
+                    continue;
+                }
+                if (!Node_getBestParent(link->parent)) {
+                    // Obviously not good, and will break guessReachOfChild.
+                    link = NodeStore_nextLink(node, link);
+                    continue;
+                }
+                uint32_t guessReach = guessReachOfChild(link);
+                struct Node_Link* bp = Node_getBestParent(link->child);
+                uint64_t path = NodeStore_getRouteLabel(&store->pub,
+                                                        node->address.path,
+                                                        link->cannonicalLabel);
+                Assert_true(path != NodeStore_getRouteLabel_PARENT_NOT_FOUND);
+                Assert_true(path != NodeStore_getRouteLabel_CHILD_NOT_FOUND);
+                if (LabelSplicer_routesThrough(path, link->parent->address.path)) {
+                    if (link == bp) {
+                        if (path != link->child->address.path) {
+                            Node_setParentReachAndPath(link->child, link, guessReach, path);
+                            state = 0;
+                        } else if (Node_getReach(link->child) != guessReach) {
+                            Node_setReach(link->child, guessReach);
+                            state = 0;
+                        }
+                    } else if (guessReach > Node_getReach(link->child)) {
+                        Node_setParentReachAndPath(link->child, link, guessReach, path);
+                        state = 0;
+                    }
+                }
+                link = NodeStore_nextLink(node, link);
+            }
+        }
+    }
+    verify(store);
+}
+
 // When a response comes in, we need to pay attention to the path used.
 static void updatePathReach(struct NodeStore_pvt* store, const uint64_t path, uint32_t newReach)
 {
@@ -2054,20 +2123,31 @@ static void updatePathReach(struct NodeStore_pvt* store, const uint64_t path, ui
         } else if (!LabelSplicer_routesThrough(path, link->child->address.path)) {
             // The path the packet came in on is not actually the best known path to the node.
         } else {
-            handleNews(link->child, newReach, store);
+            //handleNews(link->child, newReach, store);
         }
 
-        if (Node_getBestParent(link->child) == link) {
-            // Update linkState.
+        if (LabelSplicer_routesThrough(path, link->parent->address.path)) {
+            // Our reach number for link->parent should be good.
+            // This means we can potentially update the linkState for this link.
             uint32_t guessedLinkState = subReach(Node_getReach(link->parent), newReach);
+            if (link->parent == store->pub.selfNode) { guessedLinkState = newReach; }
             uint32_t linkStateDiff = (guessedLinkState > link->linkState)
                                    ? (guessedLinkState - link->linkState)
-                                   : 1;
+                                   : 0;
             update(link, linkStateDiff, store);
         }
 
         pathFrag = nextPath;
         link = nextLink;
+    }
+
+    if (LabelSplicer_routesThrough(path, link->parent->address.path)) {
+        // Our reach number for link->parent should be good.
+        // This is the last hop, so our guess should be good. (If not, why?)
+        uint32_t guessedLinkState = subReach(Node_getReach(link->parent), newReach);
+        if (link->parent == store->pub.selfNode) { guessedLinkState = newReach; }
+        uint32_t linkStateDiff = guessedLinkState - link->linkState;
+        update(link, linkStateDiff, store);
     }
 
     // Now we have to unconditionally update the reach for the last link in the chain.
@@ -2076,9 +2156,7 @@ static void updatePathReach(struct NodeStore_pvt* store, const uint64_t path, ui
         // Behavior of nextLinkOnPath()
         Assert_ifParanoid(pathFrag == 1);
 
-        handleNews(link->child, newReach, store);
-        uint32_t newLinkState = subReach(Node_getReach(link->parent), newReach);
-        update(link, newLinkState - link->linkState, store);
+        //handleNews(link->child, newReach, store);
     }
 }
 
@@ -2101,6 +2179,7 @@ void NodeStore_pathResponse(struct NodeStore* nodeStore, uint64_t path, uint64_t
         newReach = calcNextReach(0, milliseconds);
     }
     updatePathReach(store, path, newReach);
+    optimizeStore(store);
 }
 
 void NodeStore_pathTimeout(struct NodeStore* nodeStore, uint64_t path)
@@ -2122,7 +2201,7 @@ void NodeStore_pathTimeout(struct NodeStore* nodeStore, uint64_t path)
             // TODO(arceliar): Something sane. We don't know which link on the path is bad.
             // For now, just penalize them all.
             // The good ones will be rewarded again when they relay another ping.
-            update(link, -link->linkState/2, store);
+            update(link, reachAfterTimeout(link->linkState) - link->linkState, store);
         }
 
         pathFrag = nextPath;
@@ -2142,7 +2221,7 @@ void NodeStore_pathTimeout(struct NodeStore* nodeStore, uint64_t path)
                   Node_getReach(node),
                   newReach);
     }
-    handleNews(node, newReach, store);
+    //handleNews(node, newReach, store);
     if (newReach > 1024) {
         // Keep checking until we're sure it's either OK or down.
         RumorMill_addNode(store->renumberMill, &node->address);
@@ -2155,4 +2234,6 @@ void NodeStore_pathTimeout(struct NodeStore* nodeStore, uint64_t path)
         // Same idea as the workaround in NodeStore_brokenPath();
         RumorMill_addNode(store->renumberMill, &link->parent->address);
     }*/
+
+    optimizeStore(store);
 }
