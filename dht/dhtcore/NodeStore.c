@@ -399,13 +399,6 @@ static uint32_t guessReachOfChild(struct Node_Link* link)
         r = guess;
     }
 
-    // Try to reduce oscillation based on guesses.
-    struct Node_Link* bp = Node_getBestParent(link->child);
-    if (bp && bp != link) {
-        uint32_t bpGuess = guessReachOfChild(bp);
-        if (r > bpGuess) { r = bpGuess; }
-    }
-
     Assert_true(r < Node_getReach(link->parent) && r != 0);
     return r;
 }
