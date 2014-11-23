@@ -399,6 +399,18 @@ static uint32_t guessReachOfChild(struct Node_Link* link)
         r = guess;
     }
 
+    // See the comment about reach in NodeStore_pathResponse.
+    uint64_t path = extendRoute(link->parent->address.path,
+                                link->parent->encodingScheme,
+                                link->cannonicalLabel,
+                                Node_getBestParent(link->parent)->inverseLinkEncodingFormNumber);
+    uint64_t guessReach;
+    guessReach = (uint64_t)Node_getReach(link->parent);
+    guessReach *= Bits_log2x64(link->parent->address.path)+1;
+    guessReach /= Bits_log2x64(path)+1;
+
+    r = guessReach;
+
     // Try to reduce oscillation based on guesses.
     struct Node_Link* bp = Node_getBestParent(link->child);
     if (bp && bp != link) {
@@ -1423,7 +1435,10 @@ struct Node_Link* NodeStore_discoverNode(struct NodeStore* nodeStore,
     verify(store);
 
     // conservative guess of what the reach would stabilize to
-    uint32_t reach = calcNextReach(0, milliseconds);
+    //uint32_t reach = calcNextReach(0, milliseconds);
+
+    // See the comment in NodeStore_pathResponse()
+    uint32_t reach = calcNextReach(0, Bits_log2x64(addr->path)+1);
 
     struct Node_Two* child = nodeForIp(store, addr->ip6.bytes);
 
@@ -2144,15 +2159,24 @@ void NodeStore_pathResponse(struct NodeStore* nodeStore, uint64_t path, uint64_t
     uint32_t newReach;
     if (node->address.path == path) {
         // Use old reach value to calculate new reach.
-        newReach = calcNextReach(Node_getReach(node), milliseconds);
+        //newReach = calcNextReach(Node_getReach(node), milliseconds);
     }
     else {
         // Old reach value doesn't relate to this path, so we should do something different
         // FIXME(arceliar): calcNextReach is guessing what the reach would stabilize to
         // I think actually fixing this would require storing reach (or latency?) per link,
         // so we can calculate the expected reach for an arbitrary path
-        newReach = calcNextReach(0, milliseconds);
+        //newReach = calcNextReach(0, milliseconds);
     }
+
+    // newReach would normally be based on latency here.
+    // That seems to result in flappy routes, since latency can be somewhat unstable.
+    // In the interest of reliability, pick something we know exactly instead (path length)
+    // Since both path length and latency correlate with # of hops, we should expect that this
+    // avoids making any exceptionally bad decisions.
+    // (It's also how LinkStateNodeCollector worked in pathfinder1, approximately)
+    newReach = calcNextReach(0, Bits_log2x64(path)+1);
+
     updatePathReach(store, path, newReach);
 }
 
