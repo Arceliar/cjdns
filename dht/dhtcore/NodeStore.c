@@ -59,8 +59,6 @@ struct NodeStore_pvt
     /** To track time, for e.g. figuring out when nodes were last pinged */
     struct EventBase* eventBase;
 
-    bool findingBestParents;
-
     Identity
 };
 
@@ -403,58 +401,52 @@ static uint64_t guessCostOfChild(struct Node_Link* link)
 }
 
 /**
- * We have reason to believe that cost and/or path to this node should be changed.
- * This occurs whenever the cost of one of the links to this node changes, or when the
- * cost of link->parent changes (since that would affect the total cost of the path).
- * We check each link for which node is the link->child, and calculate the cost of the
- * path through this link (using the best path to link->parent). If we find that the best
- * path has changed (or the cost of the best path has changed) we update that info for
- * this node and recursively call findBestParent on the link->child for each of this node's
- * outgoing links (in case those nodes can update their paths too).
+ * We have reason to believe that cost and/or path to a node should be changed.
+ * Check if this requires us to change anyone's best parents, do so if yes.
  */
-static void findBestParent(struct Node_Two* node, struct NodeStore_pvt* store)
+static void findBestParents(struct NodeStore_pvt* store)
 {
-    struct Node_Link* bestLink = NULL;
-    uint64_t bestCost = UINT64_MAX;
-    uint64_t bestPath = UINT64_MAX;
-    for (struct Node_Link* link = node->reversePeers; link; link = link->nextPeer) {
-        if (link->linkCost == UINT32_MAX) { continue; }
-        if (bestLink && Node_isOneHopLink(bestLink) && !Node_isOneHopLink(link)) { continue; }
-        if (!Node_getBestParent(link->parent)) { continue; }
-        if (Node_isAncestorOf(node, link->parent)) { continue; }
-        uint64_t cost = guessCostOfChild(link);
-        if (bestCost <= cost) { continue; }
-        uint64_t path =
-            extendRoute(link->parent->address.path,
-            link->parent->encodingScheme,
-            link->cannonicalLabel,
-            Node_getBestParent(link->parent)->inverseLinkEncodingFormNumber);
-        if (path == extendRoute_TOOLONG) { continue; }
-        if (path == extendRoute_INVALID) { continue; }
-        Assert_true(LabelSplicer_routesThrough(path, link->parent->address.path));
-        bestCost = cost;
-        bestPath = path;
-        bestLink = link;
-    }
-    if (bestCost != Node_getCost(node) || bestPath != node->address.path) {
-        if (!bestLink) {
-            unreachable(node, store);
-        } else {
-            if (!Node_getBestParent(node)) { store->pub.linkedNodes++; }
-            setParentCostAndPath(node, bestLink, bestCost, bestPath, store);
-        }
-        if (!store->findingBestParents) {
-            store->findingBestParents = true;
-            for (struct Node_Link* link = NodeStore_getNextLink(&store->pub, NULL);
-                 link;
-                 link = NodeStore_getNextLink(&store->pub, link))
-            {
-                if (link->child == store->pub.selfNode) { continue; }
-                findBestParent(link->child, store);
+    bool changed;
+    do {
+        changed = false;
+        struct Node_Two* node = NULL;
+        RB_FOREACH(node, NodeRBTree, &store->nodeTree) {
+            if (node == store->pub.selfNode) { continue; }
+            struct Node_Link* bestLink = NULL;
+            uint64_t bestCost = UINT64_MAX;
+            uint64_t bestPath = UINT64_MAX;
+            for (struct Node_Link* link = node->reversePeers; link; link = link->nextPeer) {
+                if (link->linkCost == UINT32_MAX) { continue; }
+                if (bestLink && Node_isOneHopLink(bestLink) && !Node_isOneHopLink(link)) {
+                    continue;
+                }
+                if (!Node_getBestParent(link->parent)) { continue; }
+                if (Node_isAncestorOf(node, link->parent)) { continue; }
+                uint64_t cost = guessCostOfChild(link);
+                if (bestCost <= cost) { continue; }
+                uint64_t path =
+                    extendRoute(link->parent->address.path,
+                    link->parent->encodingScheme,
+                    link->cannonicalLabel,
+                    Node_getBestParent(link->parent)->inverseLinkEncodingFormNumber);
+                if (path == extendRoute_TOOLONG) { continue; }
+                if (path == extendRoute_INVALID) { continue; }
+                Assert_true(LabelSplicer_routesThrough(path, link->parent->address.path));
+                bestCost = cost;
+                bestPath = path;
+                bestLink = link;
             }
-            store->findingBestParents = false;
+            if (bestCost != Node_getCost(node) || bestPath != node->address.path) {
+                changed = true;
+                if (!bestLink) {
+                    unreachable(node, store);
+                } else {
+                    if (!Node_getBestParent(node)) { store->pub.linkedNodes++; }
+                    setParentCostAndPath(node, bestLink, bestCost, bestPath, store);
+                }
+            }
         }
-    }
+    } while (changed);
 }
 
 /**
@@ -470,7 +462,7 @@ static void handleLinkNews(struct Node_Link* link,
     int64_t linkCostDiff = newLinkCost;
     linkCostDiff -= link->linkCost;
     update(link, linkCostDiff, store);
-    findBestParent(link->child, store);
+    findBestParents(store);
 }
 
 void NodeStore_unlinkNodes(struct NodeStore* nodeStore, struct Node_Link* link)
